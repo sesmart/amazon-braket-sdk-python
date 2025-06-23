@@ -16,7 +16,7 @@ from __future__ import annotations
 import itertools
 
 from braket.circuits.circuit import Circuit
-from braket.circuits.observables import I, TensorProduct, X, Y, Z
+from braket.circuits.observables import I, TensorProduct, X, Y, Z, Sum
 
 _IDENTITY = "I"
 _PAULI_X = "X"
@@ -36,7 +36,7 @@ _SIGN_MAP = {"+": 1, "-": -1}
 class PauliString:
     """A lightweight representation of a Pauli string with its phase."""
 
-    def __init__(self, pauli_string: str | PauliString):
+    def __init__(self, pauli_string: str | PauliString, coeff : float = 1, phase : complex = 1):
         """Initializes a `PauliString`.
 
         Args:
@@ -51,11 +51,17 @@ class PauliString:
         if not pauli_string:
             raise ValueError("pauli_string must not be empty")
         if isinstance(pauli_string, PauliString):
+            self._coeff = coeff
             self._phase = pauli_string._phase
             self._qubit_count = pauli_string._qubit_count
             self._nontrivial = pauli_string._nontrivial
         elif isinstance(pauli_string, str):
-            self._phase, factors_str = PauliString._split(pauli_string)
+            if abs(coeff - abs(coeff)) >= 1e-10:
+                phase *= coeff / abs(coeff)
+                coeff = abs(coeff)
+            self._coeff = coeff
+            phase_str, factors_str = PauliString._split(pauli_string)
+            self._phase = phase_str * phase
             self._qubit_count = len(factors_str)
             self._nontrivial = {
                 i: factors_str[i] for i in range(len(factors_str)) if factors_str[i] != "I"
@@ -64,7 +70,7 @@ class PauliString:
             raise TypeError(f"Pauli word {pauli_string} must be of type {PauliString} or {str}")
 
     @property
-    def phase(self) -> int:
+    def phase(self) -> complex:
         """int: The phase of the Pauli string.
 
         Can be one of +/-1
@@ -75,6 +81,20 @@ class PauliString:
     def qubit_count(self) -> int:
         """int: The number of qubits this Pauli string acts on."""
         return self._qubit_count
+
+    def to_observable(self, include_trivial: bool = False) -> TensorProduct:
+        if include_trivial:
+            return TensorProduct([
+                (
+                    _PAULI_OBSERVABLES[self._nontrivial[qubit]]
+                    if qubit in self._nontrivial
+                    else _ID_OBS
+                )
+                for qubit in range(self._qubit_count)
+            ])
+        return self._phase * self._coeff * TensorProduct([
+            _PAULI_OBSERVABLES[self._nontrivial[qubit]] for qubit in sorted(self._nontrivial)
+        ])
 
     def to_unsigned_observable(self, include_trivial: bool = False) -> TensorProduct:
         """Returns the observable corresponding to the unsigned part of the Pauli string.
@@ -188,6 +208,7 @@ class PauliString:
             )
         pauli_result = ""
         phase_result = self._phase * other._phase
+        coeff = self._coeff * other._coeff
         for i in range(self._qubit_count):
             # Are either identity?
             if i not in self._nontrivial and i not in other._nontrivial:
@@ -203,16 +224,16 @@ class PauliString:
                 pauli_result += gate
                 phase_result *= phase
 
-        # ignore complex global phase
-        if phase_result.real < 0 or phase_result.imag < 0:
-            pauli_result = f"-{pauli_result}"
-        out_pauli_string = PauliString(pauli_result)
+        out_pauli_string = PauliString(pauli_result, coeff, phase_result)
 
         if inplace:
             self._phase = out_pauli_string._phase
             self._qubit_count = out_pauli_string._qubit_count
             self._nontrivial = out_pauli_string._nontrivial
         return out_pauli_string
+
+    def __add__(self, other : PauliString) -> Sum:
+        pass
 
     def __mul__(self, other: PauliString) -> PauliString:
         """Right multiplication operator overload using `dot()`.
@@ -330,6 +351,9 @@ class PauliString:
         Returns:
             Circuit: The circuit for this `PauliString`.
         """
+        assert self._coeff == 1, "Only unit coefficients are supported"  # noqa: S101
+        assert self._phase in {1, -1}, "Only unit phases are supported"  # noqa: S101
+
         circ = Circuit()
         for qubit in range(self._qubit_count):
             if qubit not in self._nontrivial:
@@ -346,6 +370,7 @@ class PauliString:
         if isinstance(other, PauliString):
             return (
                 self._phase == other._phase
+                and abs(self._coeff - other._coeff) <= 1e-10
                 and self._nontrivial == other._nontrivial
                 and self._qubit_count == other._qubit_count
             )
@@ -361,10 +386,12 @@ class PauliString:
 
     def __repr__(self):
         factors = [self._nontrivial.get(qubit, "I") for qubit in range(self._qubit_count)]
-        return f"{PauliString._phase_to_str(self._phase)}{''.join(factors)}"
+        c = self._coeff * self._phase
+        return f"{''.join(factors)}: {c}"
 
     @staticmethod
     def _split(pauli_word: str) -> tuple[int, str]:
+        raise NotImplementedError
         index = 0
         phase = 1
         if pauli_word[index] in {"+", "-"}:
@@ -376,10 +403,6 @@ class PauliString:
         if set(unsigned) - _PAULI_INDICES.keys():
             raise ValueError(f"{pauli_word} is not a valid Pauli string")
         return phase, unsigned
-
-    @staticmethod
-    def _phase_to_str(phase: int) -> str:
-        return "+" if phase > 0 else "-"
 
     def _generate_eigenstate_circuit(self, signs: tuple[int, ...]) -> Circuit:
         circ = Circuit()
