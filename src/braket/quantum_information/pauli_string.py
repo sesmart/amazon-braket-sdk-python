@@ -14,10 +14,12 @@
 from __future__ import annotations
 
 import itertools
-import re
 
 from braket.circuits.circuit import Circuit
 from braket.circuits.observables import I, TensorProduct, X, Y, Z, Sum
+
+from cmath import polar, exp
+from math import pi 
 
 _IDENTITY = "I"
 _PAULI_X = "X"
@@ -25,9 +27,9 @@ _PAULI_Y = "Y"
 _PAULI_Z = "Z"
 _PAULI_INDICES = {_IDENTITY: 0, _PAULI_X: 1, _PAULI_Y: 2, _PAULI_Z: 3}
 _PRODUCT_MAP = {
-    "X": {"Y": ["Z", 1j], "Z": ["Y", -1j]},
-    "Y": {"X": ["Z", -1j], "Z": ["X", 1j]},
-    "Z": {"X": ["Y", 1j], "Y": ["X", -1j]},
+    "X": {"Y": ["Z", +1], "Z": ["Y", -1]},
+    "Y": {"X": ["Z", -1], "Z": ["X", +1]},
+    "Z": {"X": ["Y", +1], "Y": ["X", -1]},
 }
 _ID_OBS = I()
 _PAULI_OBSERVABLES = {_PAULI_X: X(), _PAULI_Y: Y(), _PAULI_Z: Z()}
@@ -36,58 +38,70 @@ _EPS = 1e-10
 
 
 class PauliString:  # noqa: PLR0904
-    """A lightweight representation of a Pauli string with its phase."""
+    """A lightweight sparse representation of a Pauli string with its phase."""
 
     def __init__(self,
-                 pauli_string: str | PauliString,
-                 coeff: complex = 1
+                 pauli_string: str | PauliString | tuple[int, dict[int, str]],
+                 coeff: complex | tuple[float, float] = 1
                  ):
         """Initializes a length-n PauliString.
 
         Args:
-            pauli_string (str | PauliString): The representation of the pauli word, either a
-                string or another PauliString object. A valid string consists of an optional coefficient,
-                specified by an optional followed by an uppercase string in {I, X, Y, Z}.
-                Example valid strings are: XYZ, +YIZY, -YX, 0.5ZII, 0.3jIZD
-
+            pauli_string (str | PauliString | tuple[int, dict[int, str]]):
+                The representation of the pauli word, either a
+                string, another PauliString object, or a tuple of (qubit_count, nontrivial_dict).
+                A valid string consists of an (optional) coefficient with an uppercase string in
+                {I, X, Y, Z}. Example valid strings are: XYZ, -YX, 0.5ZII, 0.3jIXY, 1e-3XX, etc.
+            coeff (complex | tuple[float, float]): An optional coefficient that can be specified
+                with the PauliString, can be either a coefficient or a tuple of polar coordinates
+                (starting at 0 radians). 
+ 
         Raises:
             ValueError: If the Pauli String is empty.
         """
-        if not pauli_string:
-            raise ValueError("pauli_string must not be empty")
-        if isinstance(pauli_string, PauliString):
-            self._phase = pauli_string._phase 
-            self._modulus = pauli_string._modulus
-            self._qubit_count = pauli_string._qubit_count
-            self._nontrivial = pauli_string._nontrivial
-        elif isinstance(pauli_string, str):
-            self._modulus = abs(coeff)
-            self._phase = coeff / self._modulus if abs(self._modulus) > _EPS else +1
-            phase_str, factors_str = PauliString._split(pauli_string)
-            self._phase *= phase_str 
-            self._qubit_count = len(factors_str)
-            self._nontrivial = {
-                i: factors_str[i] for i in range(len(factors_str)) if factors_str[i] != "I"
-            }
-        else:
-            raise TypeError(f"Pauli word {pauli_string} must be of type {PauliString} or {str}")
+        match coeff:
+            case int():
+                self._modulus, self._phase = coeff, 0
+            case float() | complex():
+                self._modulus, self._phase = polar(coeff)
+            case tuple():
+                self._modulus, self._phase = coeff
+            case _:
+                raise TypeError(
+                    f" {coeff} must be of numeric type")
+        match pauli_string:
+            case PauliString():
+                self._modulus *= pauli_string._modulus
+                self._phase *= pauli_string._phase
+                self._qubit_count = pauli_string._qubit_count
+                self._nontrivial = pauli_string._nontrivial
+            case str():
+                modulus, phase, factors_str = PauliString._split_pauli_string(pauli_string)
+                self._phase *= phase
+                self._modulus *= modulus
+                self._qubit_count = len(factors_str)
+                self._nontrivial = PauliString._get_nontrivial(factors_str)
+            case (int(qubit_count), dict(nontrivial)):
+                self._qubit_count = qubit_count
+                self._nontrivial = nontrivial
+            case _:
+                raise TypeError(
+                    f"Pauli word {pauli_string} must be of type {PauliString}, {str}, or tuple")
 
     @property
-    def phase(self) -> complex | float:
+    def phase(self) ->  float:
         """float: The complex phase of the PauliString. """
         return self._phase
 
     @property
     def coeff(self) -> complex | float:
         """ coefficient of the PauliString """
-        return self._phase * self._modulus
+        return self._modulus * exp(1j * self._phase)
 
     @property
     def modulus(self) -> float:
         """ real norm of the PauliString """
         return self._modulus
-    
-
 
     @property
     def qubit_count(self) -> int:
@@ -95,20 +109,10 @@ class PauliString:  # noqa: PLR0904
         return self._qubit_count
 
     def to_observable(self, include_trivial: bool = False) -> Sum | TensorProduct:
-        if include_trivial:
-            return TensorProduct([
-                (
-                    _PAULI_OBSERVABLES[self._nontrivial[qubit]]
-                    if qubit in self._nontrivial
-                    else _ID_OBS
-                )
-                for qubit in range(self._qubit_count)
-            ])
-        if abs(self._phase * self._coeff - 1) < _EPS:
+        if abs(self._phase * self._modulus - 1) < _EPS:
             return self.to_unsigned_observable(include_trivial=include_trivial)
-        return self._phase * self._coeff * TensorProduct([
-            _PAULI_OBSERVABLES[self._nontrivial[qubit]] for qubit in sorted(self._nontrivial)
-        ])
+        return self._phase * self._modulus * self.to_unsigned_observable(
+            include_trivial=include_trivial)
 
     def to_unsigned_observable(self, include_trivial: bool = False) -> TensorProduct:
         """Returns the observable corresponding to the unsigned part of the Pauli string.
@@ -134,6 +138,162 @@ class PauliString:  # noqa: PLR0904
         return TensorProduct([
             _PAULI_OBSERVABLES[self._nontrivial[qubit]] for qubit in sorted(self._nontrivial)
         ])
+
+    def dot(self, other: PauliString, inplace: bool = False) -> PauliString:
+        """Right multiplies this Pauli string with the argument.
+
+        Returns the result of multiplying the current circuit by the argument on its right. For
+        example, if called on `-XYZ` with argument `ZYX`, then `YIY` is the result. In-place
+        computation is off by default.
+
+        Args:
+            other (PauliString): The right multiplicand.
+            inplace (bool): If `True`, `self` is updated to hold the product.
+
+        Returns:
+            PauliString: The resultant circuit from right multiplying `self` with `other`.
+
+        Raises:
+            ValueError: If the lengths of the Pauli strings being multiplied differ.
+        """
+        if self._qubit_count != other._qubit_count:
+            raise ValueError(
+                f"Input Pauli string must be of length ({self._qubit_count}), "
+                f"not {other._qubit_count}"
+            )
+        nontrivial_result = {}
+        phase_result = self._phase + other._phase
+        moduli = self._modulus * other._modulus
+
+        for i in self._nontrivial.keys() | other._nontrivial.keys():
+            match (i in self._nontrivial, i in other._nontrivial):
+                case (False, True):
+                    nontrivial_result[i] = other._nontrivial[i]
+                case (True, False):
+                    nontrivial_result[i] = self._nontrivial[i]
+                case (True, True) if self._nontrivial[i] != other._nontrivial[i]:
+                    gate, phase = _PRODUCT_MAP[self._nontrivial[i]][other._nontrivial[i]]
+                    if gate != "I":
+                        nontrivial_result[i] = gate
+                    phase_result += phase * pi / 2
+
+        if inplace:
+            self._phase = phase_result % 2 * pi
+            self._modulus = moduli
+            self._nontrivial = nontrivial_result
+            return self
+        return PauliString((self._qubit_count, {nontrivial_result}), (moduli, phase_result))
+
+    def __mul__(self, other: PauliString) -> PauliString:
+        """Right multiplication operator overload using `dot()`.
+
+        Returns the result of multiplying the current circuit by the argument on its right.
+
+        Args:
+            other (PauliString): The right multiplicand.
+
+        Returns:
+            PauliString: The resultant circuit from right multiplying `self` with `other`.
+
+        Raises:
+            ValueError: If the lengths of the Pauli strings being multiplied differ.
+
+        See Also:
+            `braket.quantum_information.PauliString.dot()`
+        """
+        return self.dot(other)
+
+    def __imul__(self, other: PauliString) -> PauliString:
+        """Operator overload for right-multiplication assignment (`*=`) using `dot()`.
+
+        Right-multiplies `self` by `other`, and assigns the result to `self`.
+
+        Args:
+            other (PauliString): The right multiplicand.
+
+        Returns:
+            PauliString: The resultant circuit from right multiplying `self` with `other`.
+
+        Raises:
+            ValueError: If the lengths of the Pauli strings being multiplied differ.
+
+        See Also:
+            `braket.quantum_information.PauliString.dot()`
+        """
+        return self.dot(other, inplace=True)
+
+    def power(self, n: int, inplace: bool = False) -> PauliString:
+        """Composes Pauli string with itself n times.
+
+        Args:
+            n (int): The number of times to self-multiply. Can be any integer value.
+            inplace (bool): Update `self` if `True`
+
+        Returns:
+            PauliString: If `n` is positive, result from self-multiplication `n` times.
+            If zero, identity. If negative, self-multiplication from trivial
+            inverse (recall Pauli operators are involutory).
+
+        Raises:
+            ValueError: If `n` isn't a plain Python `int`.
+        """
+        if not isinstance(n, int):
+            raise TypeError("Must be raised to integer power")
+
+        # Since pauli ops involutory, result is either identity or unchanged
+
+        if inplace:
+            self._phase *= n
+            self._modulus **= n
+            if n % 2 == 0:
+                self._nontrivial = {}
+            return self
+        return PauliString(
+            (self._qubit_count, {} if n % 2 == 0 else self._nontrivial.copy()),
+            (self._modulus ** n, self._phase * n)
+            )
+
+    def __pow__(self, n: int) -> PauliString:
+        """Pow operator overload for Pauli string composition.
+
+        Syntactic sugar for `power()`.
+
+        Args:
+            n (int): The number of times to self-multiply. Can be any integer
+
+        Returns:
+            PauliString: If `n` is positive, result from self-multiplication `n` times.
+            If zero, identity. If negative, self-multiplication from trivial
+            inverse (recall Pauli operators are involutory).
+
+        Raises:
+            ValueError: If `n` isn't a plain Python `int`.
+
+        See Also:
+            `braket.quantum_information.PauliString.power()`
+        """
+        return self.power(n)
+
+    def __ipow__(self, n: int) -> PauliString:
+        """Operator overload for in-place pow assignment (`**=`) using `power()`.
+
+        Syntactic sugar for in-place `power()`.
+
+        Args:
+            n (int): The number of times to self-multiply. Can be any integer
+
+        Returns:
+            PauliString: If `n` is positive, result from self-multiplication `n` times.
+            If zero, identity. If negative, self-multiplication from trivial
+            inverse (recall Pauli operators are involutory).
+
+        Raises:
+            ValueError: If `n` isn't a plain Python `int`.
+
+        See Also:
+            `braket.quantum_information.PauliString.power()`
+        """
+        return self.power(n, inplace=True)
 
     def weight_n_substrings(self, weight: int) -> tuple[PauliString, ...]:
         r"""Returns every substring of this Pauli string with exactly `weight` nontrivial factors.
@@ -198,190 +358,35 @@ class PauliString:  # noqa: PLR0904
             raise ValueError(f"signs must be +/-1, got {signs}")
         return self._generate_eigenstate_circuit(signs_tup)
 
-    def dot(self, other: PauliString, inplace: bool = False) -> PauliString:
-        """Right multiplies this Pauli string with the argument.
-
-        Returns the result of multiplying the current circuit by the argument on its right. For
-        example, if called on `-XYZ` with argument `ZYX`, then `YIY` is the result. In-place
-        computation is off by default.
-
-        Args:
-            other (PauliString): The right multiplicand.
-            inplace (bool): If `True`, `self` is updated to hold the product.
-
-        Returns:
-            PauliString: The resultant circuit from right multiplying `self` with `other`.
-
-        Raises:
-            ValueError: If the lengths of the Pauli strings being multiplied differ.
-        """
-        if self._qubit_count != other._qubit_count:
-            raise ValueError(
-                f"Input Pauli string must be of length ({self._qubit_count}), "
-                f"not {other._qubit_count}"
-            )
-        pauli_result = ""
-        phase_result = self._phase * other._phase
-        coeff = self._coeff * other._coeff
-        for i in range(self._qubit_count):
-            # Are either identity?
-            if i not in self._nontrivial and i not in other._nontrivial:
-                pauli_result += "I"
-            elif i not in self._nontrivial:
-                pauli_result += other._nontrivial[i]
-            elif i not in other._nontrivial:
-                pauli_result += self._nontrivial[i]
-            elif self._nontrivial[i] == other._nontrivial[i]:
-                pauli_result += "I"
-            else:
-                gate, phase = _PRODUCT_MAP[self._nontrivial[i]][other._nontrivial[i]]
-                pauli_result += gate
-                phase_result *= phase
-
-        out_pauli_string = PauliString(pauli_result, coeff, phase_result)
-
-        if inplace:
-            self._phase = out_pauli_string._phase
-            self._qubit_count = out_pauli_string._qubit_count
-            self._nontrivial = out_pauli_string._nontrivial
-        return out_pauli_string
-
-    def __mul__(self, other: PauliString) -> PauliString:
-        """Right multiplication operator overload using `dot()`.
-
-        Returns the result of multiplying the current circuit by the argument on its right.
-
-        Args:
-            other (PauliString): The right multiplicand.
-
-        Returns:
-            PauliString: The resultant circuit from right multiplying `self` with `other`.
-
-        Raises:
-            ValueError: If the lengths of the Pauli strings being multiplied differ.
-
-        See Also:
-            `braket.quantum_information.PauliString.dot()`
-        """
-        return self.dot(other)
-
-    def __imul__(self, other: PauliString) -> PauliString:
-        """Operator overload for right-multiplication assignment (`*=`) using `dot()`.
-
-        Right-multiplies `self` by `other`, and assigns the result to `self`.
-
-        Args:
-            other (PauliString): The right multiplicand.
-
-        Returns:
-            PauliString: The resultant circuit from right multiplying `self` with `other`.
-
-        Raises:
-            ValueError: If the lengths of the Pauli strings being multiplied differ.
-
-        See Also:
-            `braket.quantum_information.PauliString.dot()`
-        """
-        return self.dot(other, inplace=True)
-
-    def power(self, n: int, inplace: bool = False) -> PauliString:
-        """Composes Pauli string with itself n times.
-
-        Args:
-            n (int): The number of times to self-multiply. Can be any integer value.
-            inplace (bool): Update `self` if `True`
-
-        Returns:
-            PauliString: If `n` is positive, result from self-multiplication `n` times.
-            If zero, identity. If negative, self-multiplication from trivial
-            inverse (recall Pauli operators are involutory).
-
-        Raises:
-            ValueError: If `n` isn't a plain Python `int`.
-        """
-        if not isinstance(n, int):
-            raise TypeError("Must be raised to integer power")
-
-        # Since pauli ops involutory, result is either identity or unchanged
-        pauli_other = PauliString(self)
-        if n % 2 == 0:
-            pauli_other._phase = 1
-            pauli_other._nontrivial = {}
-
-        if inplace:
-            self._phase = pauli_other._phase
-            self._qubit_count = pauli_other._qubit_count
-            self._nontrivial = pauli_other._nontrivial
-        return pauli_other
-
-    def __pow__(self, n: int) -> PauliString:
-        """Pow operator overload for Pauli string composition.
-
-        Syntactic sugar for `power()`.
-
-        Args:
-            n (int): The number of times to self-multiply. Can be any integer
-
-        Returns:
-            PauliString: If `n` is positive, result from self-multiplication `n` times.
-            If zero, identity. If negative, self-multiplication from trivial
-            inverse (recall Pauli operators are involutory).
-
-        Raises:
-            ValueError: If `n` isn't a plain Python `int`.
-
-        See Also:
-            `braket.quantum_information.PauliString.power()`
-        """
-        return self.power(n)
-
-    def __ipow__(self, n: int) -> PauliString:
-        """Operator overload for in-place pow assignment (`**=`) using `power()`.
-
-        Syntactic sugar for in-place `power()`.
-
-        Args:
-            n (int): The number of times to self-multiply. Can be any integer
-
-        Returns:
-            PauliString: If `n` is positive, result from self-multiplication `n` times.
-            If zero, identity. If negative, self-multiplication from trivial
-            inverse (recall Pauli operators are involutory).
-
-        Raises:
-            ValueError: If `n` isn't a plain Python `int`.
-
-        See Also:
-            `braket.quantum_information.PauliString.power()`
-        """
-        return self.power(n, inplace=True)
-
     def to_circuit(self) -> Circuit:
         """Returns circuit represented by this `PauliString`.
 
         Returns:
             Circuit: The circuit for this `PauliString`.
         """
-        assert self._coeff == 1, "Only unit coefficients are supported"  # noqa: S101
+        assert abs(self._modulus - 1) <= _EPS, "Only unit coefficients are supported"  # noqa: S101
         assert self._phase in {1, -1}, "Only unit phases are supported"  # noqa: S101
 
         circ = Circuit()
         for qubit in range(self._qubit_count):
-            if qubit not in self._nontrivial:
-                circ = circ.i(qubit)
-            elif self._nontrivial[qubit] == "X":
-                circ = circ.x(qubit)
-            elif self._nontrivial[qubit] == "Y":
-                circ = circ.y(qubit)
-            else:
-                circ = circ.z(qubit)
+            match self._nontrivial.get(qubit, "I"):
+                case "I":
+                    circ.i(qubit)
+                case "X":
+                    circ.x(qubit)
+                case "Y":
+                    circ.y(qubit)
+                case "Z":
+                    circ.z(qubit)
+        # if self._phase != 1:
+        #     circ.global_phase(self._phase)
         return circ
 
     def __eq__(self, other: PauliString):
         if isinstance(other, PauliString):
             return (
                 self._phase == other._phase
-                and abs(self._coeff - other._coeff) <= 1e-10
+                and abs(self._modulus - other._modulus) <= _EPS
                 and self._nontrivial == other._nontrivial
                 and self._qubit_count == other._qubit_count
             )
@@ -404,8 +409,12 @@ class PauliString:  # noqa: PLR0904
 
     def __repr__(self):
         factors = [self._nontrivial.get(qubit, "I") for qubit in range(self._qubit_count)]
-        c = self._coeff * self._phase
+        c = self._modulus * self._phase
         return f"{''.join(factors)}: {c}"
+
+    @staticmethod
+    def _get_nontrivial(pauli_str: str) -> dict[int, str]:
+        return {i: p for i, p in enumerate(pauli_str) if pauli_str[i] != "I"}
 
     def _generate_eigenstate_circuit(self, signs: tuple[int, ...]) -> Circuit:
         circ = Circuit()
@@ -421,26 +430,27 @@ class PauliString:  # noqa: PLR0904
                 circ.h(qubit).s(qubit)
             elif state == -2:
                 circ.h(qubit).si(qubit)
+            # circ.global_phase(self.phase)
         return circ
-    
+
     @staticmethod
-    def _split(pauli_word: str) -> tuple[complex, str]:
-        # Find first occurrence of Pauli letters
+    def _split_pauli_string(pauli_word: str) -> tuple[complex, str]:
+        """ split a string into a coefficient or sign and Pauli expression """
         for i, char in enumerate(pauli_word):
             if char in _PAULI_INDICES:
                 coeff_str = pauli_word[:i]
                 pauli_str = pauli_word[i:]
                 match coeff_str:
                     case "" | "+":
-                        coeff = 1
+                        modulus, phase = 1, 0
                     case "-":
-                        coeff = -1
+                        modulus, phase = 1, pi
                     case _:
                         coeff = complex(coeff_str)
                 break
         else:
             raise ValueError(f"{pauli_word} is not a valid Pauli string")
-        
+
         if not pauli_str:
             raise ValueError("Pauli string cannot be empty")
         if set(pauli_str) - _PAULI_INDICES.keys():
