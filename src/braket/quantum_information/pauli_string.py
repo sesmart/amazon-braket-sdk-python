@@ -72,12 +72,12 @@ class PauliString:  # noqa: PLR0904
         match pauli_string:
             case PauliString():
                 self._modulus *= pauli_string._modulus
-                self._phase *= pauli_string._phase
+                self._phase += pauli_string._phase
                 self._qubit_count = pauli_string._qubit_count
                 self._nontrivial = pauli_string._nontrivial
             case str():
                 modulus, phase, factors_str = PauliString._split_pauli_string(pauli_string)
-                self._phase *= phase
+                self._phase += phase
                 self._modulus *= modulus
                 self._qubit_count = len(factors_str)
                 self._nontrivial = PauliString._get_nontrivial(factors_str)
@@ -109,9 +109,10 @@ class PauliString:  # noqa: PLR0904
         return self._qubit_count
 
     def to_observable(self, include_trivial: bool = False) -> Sum | TensorProduct:
+        """ Returns the observable """
         if abs(self._phase * self._modulus - 1) < _EPS:
             return self.to_unsigned_observable(include_trivial=include_trivial)
-        return self._phase * self._modulus * self.to_unsigned_observable(
+        return self.coeff * self.to_unsigned_observable(
             include_trivial=include_trivial)
 
     def to_unsigned_observable(self, include_trivial: bool = False) -> TensorProduct:
@@ -178,11 +179,11 @@ class PauliString:  # noqa: PLR0904
                     phase_result += phase * pi / 2
 
         if inplace:
-            self._phase = phase_result % 2 * pi
+            self._phase = phase_result % (2 * pi)
             self._modulus = moduli
             self._nontrivial = nontrivial_result
             return self
-        return PauliString((self._qubit_count, {nontrivial_result}), (moduli, phase_result))
+        return PauliString((self._qubit_count, nontrivial_result), (moduli, phase_result))
 
     def __mul__(self, other: PauliString) -> PauliString:
         """Right multiplication operator overload using `dot()`.
@@ -226,7 +227,7 @@ class PauliString:  # noqa: PLR0904
         """Composes Pauli string with itself n times.
 
         Args:
-            n (int): The number of times to self-multiply. Can be any integer value.
+            n (int): Integer power of product.
             inplace (bool): Update `self` if `True`
 
         Returns:
@@ -239,8 +240,6 @@ class PauliString:  # noqa: PLR0904
         """
         if not isinstance(n, int):
             raise TypeError("Must be raised to integer power")
-
-        # Since pauli ops involutory, result is either identity or unchanged
 
         if inplace:
             self._phase *= n
@@ -318,7 +317,7 @@ class PauliString:  # noqa: PLR0904
                 for qubit in range(self._qubit_count)
             ]
             substrings.append(
-                PauliString(f"{PauliString._phase_to_str(self._phase)}{''.join(factors)}")
+                PauliString(f"{''.join(factors)}")
             )
         return tuple(substrings)
 
@@ -365,7 +364,7 @@ class PauliString:  # noqa: PLR0904
             Circuit: The circuit for this `PauliString`.
         """
         assert abs(self._modulus - 1) <= _EPS, "Only unit coefficients are supported"  # noqa: S101
-        assert self._phase in {1, -1}, "Only unit phases are supported"  # noqa: S101
+        assert self._phase in {0, pi}, "Only unit phases are supported"  # noqa: S101
 
         circ = Circuit()
         for qubit in range(self._qubit_count):
@@ -385,8 +384,7 @@ class PauliString:  # noqa: PLR0904
     def __eq__(self, other: PauliString):
         if isinstance(other, PauliString):
             return (
-                self._phase == other._phase
-                and abs(self._modulus - other._modulus) <= _EPS
+                abs(self.coeff - other.coeff) <= _EPS
                 and self._nontrivial == other._nontrivial
                 and self._qubit_count == other._qubit_count
             )
@@ -405,12 +403,22 @@ class PauliString:  # noqa: PLR0904
         return _PAULI_INDICES[self._nontrivial.get(item, "I")]
 
     def __len__(self):
+        """ total length, i.e. number of qubits """
         return self._qubit_count
 
+    @property
+    def degree(self) -> int:
+        """ number of non trivial Pauli elements in the string """
+        return len(self._nontrivial)
+
+    def __str__(self) -> str:
+        """ shorter output form without coefficient """
+        return "".join([self._nontrivial.get(qubit, "I") for qubit in range(self._qubit_count)])
+
     def __repr__(self):
+        """ can be sued to self replicate """
         factors = [self._nontrivial.get(qubit, "I") for qubit in range(self._qubit_count)]
-        c = self._modulus * self._phase
-        return f"{''.join(factors)}: {c}"
+        return f"{self.coeff}{''.join(factors)}"
 
     @staticmethod
     def _get_nontrivial(pauli_str: str) -> dict[int, str]:
@@ -434,7 +442,7 @@ class PauliString:  # noqa: PLR0904
         return circ
 
     @staticmethod
-    def _split_pauli_string(pauli_word: str) -> tuple[complex, str]:
+    def _split_pauli_string(pauli_word: str) -> tuple[float, float, str]:
         """ split a string into a coefficient or sign and Pauli expression """
         for i, char in enumerate(pauli_word):
             if char in _PAULI_INDICES:
@@ -446,7 +454,7 @@ class PauliString:  # noqa: PLR0904
                     case "-":
                         modulus, phase = 1, pi
                     case _:
-                        coeff = complex(coeff_str)
+                        modulus, phase = polar(complex(coeff_str))
                 break
         else:
             raise ValueError(f"{pauli_word} is not a valid Pauli string")
@@ -455,4 +463,4 @@ class PauliString:  # noqa: PLR0904
             raise ValueError("Pauli string cannot be empty")
         if set(pauli_str) - _PAULI_INDICES.keys():
             raise ValueError(f"{pauli_word} is not a valid Pauli string")
-        return coeff, pauli_str
+        return modulus, phase, pauli_str
