@@ -729,6 +729,18 @@ class Circuit:
             self._has_compiler_directives = True
         return self
 
+    @property
+    def verbatim(self) -> Circuit:
+        """ return  """
+        return Circuit().add_verbatim_box(self)
+
+    def remove_verbatim(self,
+            index : int = 0,
+            ) -> Circuit:
+        """ inplace removal of verbatim boxes from a circuit """
+        for i in self.instruction:
+            pass
+
     def barrier(self, target: QubitSetInput | None = None) -> Circuit:
         """Add a barrier compiler directive to the circuit.
 
