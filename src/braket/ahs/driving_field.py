@@ -50,11 +50,11 @@ class DrivingField(Hamiltonian):
         with the sum :math:`\sum_k` taken over all target atoms.
 
         Args:
-            amplitude (Union[Field, TimeSeries]): global amplitude (:math:`\Omega(t)`).
+            amplitude (Field | TimeSeries): global amplitude (:math:`\Omega(t)`).
                 Time is in s, and value is in rad/s.
-            phase (Union[Field, TimeSeries]): global phase (:math:`\phi(t)`).
+            phase (Field | TimeSeries): global phase (:math:`\phi(t)`).
                 Time is in s, and value is in rad/s.
-            detuning (Union[Field, TimeSeries]): global detuning (:math:`\Delta(t)`).
+            detuning (Field | TimeSeries): global detuning (:math:`\Delta(t)`).
                 Time is in s, and value is in rad/s.
         """
         super().__init__()
@@ -173,7 +173,7 @@ class DrivingField(Hamiltonian):
         phase = TimeSeries()
 
         for t, amplitude_value, detuning_value, phase_value in zip(
-            times, amplitudes, detunings, phases
+            times, amplitudes, detunings, phases, strict=True
         ):
             amplitude.put(t, amplitude_value)
             detuning.put(t, detuning_value)

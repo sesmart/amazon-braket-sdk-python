@@ -12,7 +12,7 @@
 # language governing permissions and limitations under the License.
 
 from collections.abc import Iterable
-from typing import Any, Optional, Union
+from typing import Any
 
 from braket.circuits.instruction import Instruction
 from braket.circuits.measure import Measure
@@ -25,11 +25,11 @@ from braket.registers.qubit_set import QubitSetInput
 class MeasureCriteria(CircuitInstructionCriteria):
     """This class models noise Criteria based on Measure instructions."""
 
-    def __init__(self, qubits: Optional[QubitSetInput] = None):
+    def __init__(self, qubits: QubitSetInput | None = None):
         """Creates Measure-based Criteria.
 
         Args:
-            qubits (Optional[QubitSetInput]): A set of relevant qubits. If no qubits
+            qubits (QubitSetInput | None): A set of relevant qubits. If no qubits
                 are provided, all (possible) qubits are considered to be relevant.
         """
         self._qubits = parse_qubit_input(qubits, 1)
@@ -48,14 +48,14 @@ class MeasureCriteria(CircuitInstructionCriteria):
         """
         return [CriteriaKey.QUBIT]
 
-    def get_keys(self, key_type: CriteriaKey) -> Union[CriteriaKeyResult, set[Any]]:
+    def get_keys(self, key_type: CriteriaKey) -> CriteriaKeyResult | set[Any]:
         """Gets the keys for a given CriteriaKey.
 
         Args:
             key_type (CriteriaKey): The relevant Criteria Key.
 
         Returns:
-            Union[CriteriaKeyResult, set[Any]]: The return value is based on the key type:
+            CriteriaKeyResult | set[Any]: The return value is based on the key type:
             QUBIT will return a set of qubit targets that are relevant to this Criteria, or
             CriteriaKeyResult.ALL if the Criteria is relevant for all (possible) qubits.
             All other keys will return an empty set.
