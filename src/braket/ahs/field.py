@@ -14,19 +14,18 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Optional
 
 from braket.ahs.pattern import Pattern
 from braket.timings.time_series import TimeSeries
 
 
 class Field:
-    def __init__(self, time_series: TimeSeries, pattern: Optional[Pattern] = None) -> None:
+    def __init__(self, time_series: TimeSeries, pattern: Pattern | None = None) -> None:
         """A space and time dependent parameter of a program.
 
         Args:
             time_series (TimeSeries): The time series representing this field.
-            pattern (Optional[Pattern]): The local pattern of real numbers.
+            pattern (Pattern | None): The local pattern of real numbers.
         """
         self._time_series = time_series
         self._pattern = pattern
@@ -37,24 +36,24 @@ class Field:
         return self._time_series
 
     @property
-    def pattern(self) -> Optional[Pattern]:
-        """Optional[Pattern]: The local pattern of real numbers."""
+    def pattern(self) -> Pattern | None:
+        """Pattern | None: The local pattern of real numbers."""
         return self._pattern
 
     def discretize(
         self,
-        time_resolution: Optional[Decimal] = None,
-        value_resolution: Optional[Decimal] = None,
-        pattern_resolution: Optional[Decimal] = None,
+        time_resolution: Decimal | None = None,
+        value_resolution: Decimal | None = None,
+        pattern_resolution: Decimal | None = None,
     ) -> Field:
         """Creates a discretized version of the field,
         where time, value and pattern are rounded to the
         closest multiple of their corresponding resolutions.
 
         Args:
-            time_resolution (Optional[Decimal]): Time resolution
-            value_resolution (Optional[Decimal]): Value resolution
-            pattern_resolution (Optional[Decimal]): Pattern resolution
+            time_resolution (Decimal | None): Time resolution
+            value_resolution (Decimal | None): Value resolution
+            pattern_resolution (Decimal | None): Pattern resolution
 
         Returns:
             Field: A new discretized field.

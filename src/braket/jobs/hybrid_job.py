@@ -218,13 +218,14 @@ def hybrid_job(
                     "device": device or "local:none/none",
                     "source_module": temp_dir,
                     "entry_point": (
-                        f"{temp_dir}.{entry_point_file_path.stem}:{entry_point.__name__}"
+                        f"{temp_dir_path.name}.{entry_point_file_path.stem}:{entry_point.__name__}"
                     ),
                     "wait_until_complete": wait_until_complete,
                     "job_name": job_name or _generate_default_job_name(func=entry_point),
                     "hyperparameters": _log_hyperparameters(entry_point, args, kwargs),
                     "logger": logger,
                 }
+
                 optional_args = {
                     "image_uri": image_uri,
                     "input_data": job_input_data,
@@ -386,7 +387,7 @@ def _validate_python_version(image_uri: str | None, aws_session: AwsSession | No
 
 
 def _process_dependencies(dependencies: str | Path | list[str], temp_dir: Path) -> None:
-    if isinstance(dependencies, (str, Path)):
+    if isinstance(dependencies, str | Path):
         # requirements file
         shutil.copy(Path(dependencies).resolve(), temp_dir / "requirements.txt")
     else:
@@ -398,7 +399,7 @@ def _process_dependencies(dependencies: str | Path | list[str], temp_dir: Path) 
 class _IncludeModules:
     def __init__(self, modules: str | ModuleType | Iterable[str | ModuleType] | None = None):
         modules = modules or []
-        if isinstance(modules, (str, ModuleType)):
+        if isinstance(modules, str | ModuleType):
             modules = [modules]
         self._modules = [
             (importlib.import_module(module) if isinstance(module, str) else module)

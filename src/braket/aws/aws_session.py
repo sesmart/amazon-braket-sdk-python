@@ -20,7 +20,7 @@ import re
 import warnings
 from functools import cache
 from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import Any, NamedTuple
 
 import backoff
 import boto3
@@ -34,7 +34,7 @@ from braket.tracking.tracking_context import active_trackers, broadcast_event
 from braket.tracking.tracking_events import _TaskCreationEvent, _TaskStatusEvent
 
 
-class AwsSession:  # noqa: PLR0904
+class AwsSession:
     """Manage interactions with AWS services."""
 
     class S3DestinationFolder(NamedTuple):
@@ -45,10 +45,10 @@ class AwsSession:  # noqa: PLR0904
 
     def __init__(
         self,
-        boto_session: Optional[boto3.Session] = None,
-        braket_client: Optional[client] = None,
-        config: Optional[Config] = None,
-        default_bucket: Optional[str] = None,
+        boto_session: boto3.Session | None = None,
+        braket_client: client | None = None,
+        config: Config | None = None,
+        default_bucket: str | None = None,
     ):
         """Initializes an `AwsSession`.
 
@@ -638,23 +638,23 @@ class AwsSession:  # noqa: PLR0904
 
     def search_devices(
         self,
-        arns: Optional[list[str]] = None,
-        names: Optional[list[str]] = None,
-        types: Optional[list[str]] = None,
-        statuses: Optional[list[str]] = None,
-        provider_names: Optional[list[str]] = None,
+        arns: list[str] | None = None,
+        names: list[str] | None = None,
+        types: list[str] | None = None,
+        statuses: list[str] | None = None,
+        provider_names: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Get devices based on filters. The result is the AND of
         all the filters `arns`, `names`, `types`, `statuses`, `provider_names`.
 
         Args:
-            arns (Optional[list[str]]): device ARN filter, default is `None`.
-            names (Optional[list[str]]): device name filter, default is `None`.
-            types (Optional[list[str]]): device type filter, default is `None`.
-            statuses (Optional[list[str]]): device status filter, default is `None`. When `None`
+            arns (list[str] | None): device ARN filter, default is `None`.
+            names (list[str] | None): device name filter, default is `None`.
+            types (list[str] | None): device type filter, default is `None`.
+            statuses (list[str] | None): device status filter, default is `None`. When `None`
                 is used, RETIRED devices will not be returned. To include RETIRED devices in
                 the results, use a filter that includes "RETIRED" for this parameter.
-            provider_names (Optional[list[str]]): provider name list, default is `None`.
+            provider_names (list[str] | None): provider name list, default is `None`.
 
         Returns:
             list[dict[str, Any]]: The response from the Amazon Braket `SearchDevices` operation.
@@ -747,17 +747,17 @@ class AwsSession:  # noqa: PLR0904
         self,
         log_group: str,
         log_stream_prefix: str,
-        limit: Optional[int] = None,
-        next_token: Optional[str] = None,
+        limit: int | None = None,
+        next_token: str | None = None,
     ) -> dict[str, Any]:
         """Describes CloudWatch log streams in a log group with a given prefix.
 
         Args:
             log_group (str): Name of the log group.
             log_stream_prefix (str): Prefix for log streams to include.
-            limit (Optional[int]): Limit for number of log streams returned.
+            limit (int | None): Limit for number of log streams returned.
                 default is 50.
-            next_token (Optional[str]): The token for the next set of items to return.
+            next_token (str | None): The token for the next set of items to return.
                 Would have been received in a previous call.
 
         Returns:
@@ -783,7 +783,7 @@ class AwsSession:  # noqa: PLR0904
         log_stream: str,
         start_time: int,
         start_from_head: bool = True,
-        next_token: Optional[str] = None,
+        next_token: str | None = None,
     ) -> dict[str, Any]:
         """Gets CloudWatch log events from a given log stream.
 
@@ -793,7 +793,7 @@ class AwsSession:  # noqa: PLR0904
             start_time (int): Timestamp that indicates a start time to include log events.
             start_from_head (bool): Bool indicating to return oldest events first. default
                 is True.
-            next_token (Optional[str]): The token for the next set of items to return.
+            next_token (str | None): The token for the next set of items to return.
                 Would have been received in a previous call.
 
         Returns:
@@ -813,14 +813,14 @@ class AwsSession:  # noqa: PLR0904
 
     def copy_session(
         self,
-        region: Optional[str] = None,
-        max_connections: Optional[int] = None,
+        region: str | None = None,
+        max_connections: int | None = None,
     ) -> AwsSession:
         """Creates a new AwsSession based on the region.
 
         Args:
-            region (Optional[str]): Name of the region. Default = `None`.
-            max_connections (Optional[int]): The maximum number of connections in the
+            region (str | None): Name of the region. Default = `None`.
+            max_connections (int | None): The maximum number of connections in the
                 Boto3 connection pool. Default = `None`.
 
         Returns:
@@ -868,8 +868,8 @@ class AwsSession:  # noqa: PLR0904
         Returns:
             str: Verbose image tag for given image.
         """
-        registry = image_uri.split(".")[0]
-        repository, tag = image_uri.split("/")[-1].split(":")
+        registry = image_uri.split(".", maxsplit=1)[0]
+        repository, tag = image_uri.rsplit("/", maxsplit=1)[-1].split(":")
 
         # get image digest of latest image
         digest = self.ecr_client.batch_get_image(

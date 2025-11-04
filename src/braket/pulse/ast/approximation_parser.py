@@ -15,7 +15,7 @@ import re
 from collections import defaultdict
 from collections.abc import KeysView
 from dataclasses import dataclass
-from typing import Any, ClassVar, Optional, Union
+from typing import Any, ClassVar
 
 import numpy as np
 from openpulse import ast
@@ -49,7 +49,7 @@ class _ParseState:
     frame_data: dict[str, _FrameState]
 
 
-class _ApproximationParser(QASMVisitor[_ParseState]):  # noqa: PLR0904
+class _ApproximationParser(QASMVisitor[_ParseState]):
     """Walk the AST and build the output signal amplitude, frequency and phases
     for each channel.
     """
@@ -64,14 +64,12 @@ class _ApproximationParser(QASMVisitor[_ParseState]):  # noqa: PLR0904
         self._qubit_frames_mapping: dict[str, list[str]] = _init_qubit_frame_mapping(frames)
         self.visit(program.to_ast(include_externs=False), context)
 
-    def visit(
-        self, node: Union[ast.QASMNode, ast.Expression], context: Optional[_ParseState] = None
-    ) -> Any:
+    def visit(self, node: ast.QASMNode | ast.Expression, context: _ParseState | None = None) -> Any:
         """Visit a node.
 
         Args:
-            node (Union[ast.QASMNode, ast.Expression]): The node to visit.
-            context (Optional[_ParseState]): The parse state context.
+            node (ast.QASMNode | ast.Expression): The node to visit.
+            context (_ParseState | None): The parse state context.
 
         Returns:
             Any: The parsed return value.
@@ -80,7 +78,7 @@ class _ApproximationParser(QASMVisitor[_ParseState]):  # noqa: PLR0904
 
     def _get_frame_parameters(
         self, parameters: list[ast.Expression], context: _ParseState
-    ) -> Union[KeysView, list[str]]:
+    ) -> KeysView | list[str]:
         frame_ids = set()
         for expression in parameters:
             identifier_name = self.visit(expression, context)
@@ -129,7 +127,7 @@ class _ApproximationParser(QASMVisitor[_ParseState]):  # noqa: PLR0904
 
     def visit_ClassicalDeclaration(
         self, node: ast.ClassicalDeclaration, context: _ParseState
-    ) -> Union[dict, None]:
+    ) -> None:
         """Visit a Classical Declaration.
             node.type, node.identifier, node.init_expression
             angle[20] a = 1+2;
@@ -143,10 +141,7 @@ class _ApproximationParser(QASMVisitor[_ParseState]):  # noqa: PLR0904
         Raises:
             NotImplementedError: Raised if the node is not a PortType, FrameType, or
                 WaveformType.
-
-        Returns:
-            Union[dict, None]: Returns a dict if WaveformType, None otherwise.
-        """  # noqa: DOC202
+        """
         identifier = self.visit(node.identifier, context)
         if type(node.type) is ast.WaveformType:
             context.variables[identifier] = self.visit(node.init_expression, context)
@@ -256,7 +251,7 @@ class _ApproximationParser(QASMVisitor[_ParseState]):  # noqa: PLR0904
             return ~self.visit(node.expression, context)
         raise NotImplementedError
 
-    def visit_BinaryExpression(self, node: ast.BinaryExpression, context: _ParseState) -> Any:  # noqa: C901, PLR0911, PLR0912
+    def visit_BinaryExpression(self, node: ast.BinaryExpression, context: _ParseState) -> Any:  # noqa: C901, PLR0912
         """Visit Binary Expression.
             node.lhs, node.rhs, node.op
             1+2
@@ -498,7 +493,7 @@ class _ApproximationParser(QASMVisitor[_ParseState]):  # noqa: PLR0904
         frame_id = self.visit(node.arguments[0], context)
         if isinstance(node.arguments[1], ast.ArrayLiteral):
             amps = self.visit(node.arguments[1], context)
-        elif isinstance(node.arguments[1], (ast.Identifier, ast.FunctionCall)):
+        elif isinstance(node.arguments[1], ast.Identifier | ast.FunctionCall):
             amps = self.visit(node.arguments[1], context)
             if isinstance(amps, Waveform):
                 amps = amps.sample(context.frame_data[frame_id].dt)
