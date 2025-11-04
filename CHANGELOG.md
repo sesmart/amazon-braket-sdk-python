@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.104.1 (2025-10-31)
+
+### Bug Fixes and Other Changes
+
+ * handle no program inputs
+
+## v1.104.0 (2025-10-28)
+
+### Deprecations and Removals
+
+ * retire Aria-2 in devices enum
+
+### Bug Fixes and Other Changes
+
+ * Validate hybrid jobs name
+
 ## v1.103.0 (2025-10-16)
 
 ### Deprecations and Removals
