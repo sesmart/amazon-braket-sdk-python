@@ -277,6 +277,43 @@ def test_coefficient_parsing(input_str, expected_coeff):
     ps = PauliString(input_str)
     assert abs(ps.coeff - expected_coeff) < 1e-10
 
+
+@pytest.mark.parametrize(
+    "pauli_string, expected_observable",
+    [
+        ("+XZ", X() @ Z()),
+        ("-XZ", -1 * (X() @ Z())),
+        ("0.5XY", 0.5 * (X() @ Y())),
+        ("2jZ", 2j * Z()),
+        ("-0.5jYX", -0.5j * (Y() @ X())),
+        ("IXIY", X() @ Y()),
+        ("2IXIY", 2 * (X() @ Y())),
+    ],
+)
+def test_to_observable(pauli_string, expected_observable):
+    ps = PauliString(pauli_string)
+    obs = ps.to_observable()
+    assert obs == expected_observable
+
+
+@pytest.mark.parametrize(
+    "observable, expected_pauli_string",
+    [
+        (X() @ Z(), "XZ"),
+        (Y() @ X(), "YX"),
+        (0.5 * (X() @ Y()), "XY"),
+        (2j * Z(), "Z"),
+        (1 * Z(3), "IIIZ")
+    ],
+)
+def test_from_observable(observable, expected_pauli_string):
+    print(observable)
+    ps = PauliString.from_observable(observable)
+    print(ps.__str__())
+    assert str(ps) == expected_pauli_string
+    assert abs(ps.coeff - observable.coefficient) < 1e-10
+
+
 # Test tuple input constructor
 @pytest.mark.parametrize(
     "qubit_count, nontrivial, coeff, expected_str",

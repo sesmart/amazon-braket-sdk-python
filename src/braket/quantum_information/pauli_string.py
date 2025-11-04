@@ -14,12 +14,13 @@
 from __future__ import annotations
 
 import itertools
+from cmath import exp, polar
+from math import pi
 
 from braket.circuits.circuit import Circuit
-from braket.circuits.observables import I, TensorProduct, X, Y, Z, Sum
+from braket.circuits.observables import I, Sum, TensorProduct, X, Y, Z
 
-from cmath import polar, exp
-from math import pi 
+import numpy as np
 
 _IDENTITY = "I"
 _PAULI_X = "X"
@@ -54,21 +55,21 @@ class PauliString:  # noqa: PLR0904
                 {I, X, Y, Z}. Example valid strings are: XYZ, -YX, 0.5ZII, 0.3jIXY, 1e-3XX, etc.
             coeff (complex | tuple[float, float]): An optional coefficient that can be specified
                 with the PauliString, can be either a coefficient or a tuple of polar coordinates
-                (starting at 0 radians). 
- 
+                (starting at 0 radians).
+
         Raises:
             ValueError: If the Pauli String is empty.
         """
         match coeff:
-            case int():
+            case int() | np.signedinteger():
                 self._modulus, self._phase = coeff, 0
-            case float() | complex():
+            case float() | complex() | np.floating() | np.complexfloating:
                 self._modulus, self._phase = polar(coeff)
             case tuple():
                 self._modulus, self._phase = coeff
             case _:
                 raise TypeError(
-                    f" {coeff} must be of numeric type")
+                    f" {coeff} must be of numeric type, not {type(coeff)}")
         match pauli_string:
             case PauliString():
                 self._modulus *= pauli_string._modulus
@@ -108,14 +109,37 @@ class PauliString:  # noqa: PLR0904
         """int: The number of qubits this Pauli string acts on."""
         return self._qubit_count
 
-    def to_observable(self, include_trivial: bool = False) -> Sum | TensorProduct:
-        """ Returns the observable """
+    @staticmethod
+    def from_observable(
+            observable: TensorProduct | I | X | Y | Z,
+            nq: int | None = None) -> PauliString:
+        """ Convert a tensor or single Pauli to a PauliString """
+
+        has_targets = len(observable.targets) > 0
+        if nq is None:
+            nq = max(observable.targets) + 1 if has_targets else getattr(observable, "__len__", [0].__len__)()  # noqa: E501
+        if nq == 1:
+            return PauliString(observable.ascii_symbols[0])
+        pstr = {}
+        if hasattr(observable, "factors"):
+            for i, term in enumerate(observable.factors):
+                qubit = int(term.targets) if has_targets else i
+                pstr[qubit] = term.ascii_symbols[0]
+        else:
+            qubit = int(observable.targets[0])
+            pstr[qubit] = observable.ascii_symbols[0]
+        return PauliString((nq, pstr), observable.coefficient)
+
+    def to_observable(self,
+            include_trivial: bool = False) -> TensorProduct | I | X | Y | Z:
+        """ Returns observable form of the Pauli string """
         if abs(self._phase * self._modulus - 1) < _EPS:
             return self.to_unsigned_observable(include_trivial=include_trivial)
         return self.coeff * self.to_unsigned_observable(
             include_trivial=include_trivial)
 
-    def to_unsigned_observable(self, include_trivial: bool = False) -> TensorProduct:
+    def to_unsigned_observable(self,
+            include_trivial: bool = False) -> TensorProduct | I | X | Y | Z:
         """Returns the observable corresponding to the unsigned part of the Pauli string.
 
         For example, for a Pauli string -XYZ, the corresponding observable is X ⊗ Y ⊗ Z.
