@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import itertools
+import re
 
 from braket.circuits.circuit import Circuit
 from braket.circuits.observables import I, TensorProduct, X, Y, Z, Sum
@@ -31,19 +32,23 @@ _PRODUCT_MAP = {
 _ID_OBS = I()
 _PAULI_OBSERVABLES = {_PAULI_X: X(), _PAULI_Y: Y(), _PAULI_Z: Z()}
 _SIGN_MAP = {"+": 1, "-": -1}
+_EPS = 1e-10
 
 
-class PauliString:
+class PauliString:  # noqa: PLR0904
     """A lightweight representation of a Pauli string with its phase."""
 
-    def __init__(self, pauli_string: str | PauliString, coeff : float = 1, phase : complex = 1):
-        """Initializes a `PauliString`.
+    def __init__(self,
+                 pauli_string: str | PauliString,
+                 coeff: complex = 1
+                 ):
+        """Initializes a length-n PauliString.
 
         Args:
             pauli_string (Union[str, PauliString]): The representation of the pauli word, either a
-                string or another PauliString object. A valid string consists of an optional phase,
-                specified by an optional sign +/- followed by an uppercase string in {I, X, Y, Z}.
-                Example valid strings are: XYZ, +YIZY, -YX
+                string or another PauliString object. A valid string consists of an optional coefficient,
+                specified by an optional followed by an uppercase string in {I, X, Y, Z}.
+                Example valid strings are: XYZ, +YIZY, -YX, 0.5ZII, 0.3jIZD
 
         Raises:
             ValueError: If the Pauli String is empty.
@@ -51,17 +56,15 @@ class PauliString:
         if not pauli_string:
             raise ValueError("pauli_string must not be empty")
         if isinstance(pauli_string, PauliString):
-            self._coeff = coeff
-            self._phase = pauli_string._phase
+            self._phase = pauli_string._phase 
+            self._modulus = pauli_string._modulus
             self._qubit_count = pauli_string._qubit_count
             self._nontrivial = pauli_string._nontrivial
         elif isinstance(pauli_string, str):
-            if abs(coeff - abs(coeff)) >= 1e-10:
-                phase *= coeff / abs(coeff)
-                coeff = abs(coeff)
-            self._coeff = coeff
+            self._modulus = abs(coeff)
+            self._phase = coeff / self._modulus if abs(self._modulus) > _EPS else +1
             phase_str, factors_str = PauliString._split(pauli_string)
-            self._phase = phase_str * phase
+            self._phase *= phase_str 
             self._qubit_count = len(factors_str)
             self._nontrivial = {
                 i: factors_str[i] for i in range(len(factors_str)) if factors_str[i] != "I"
@@ -70,19 +73,28 @@ class PauliString:
             raise TypeError(f"Pauli word {pauli_string} must be of type {PauliString} or {str}")
 
     @property
-    def phase(self) -> complex:
-        """int: The phase of the Pauli string.
-
-        Can be one of +/-1
-        """
+    def phase(self) -> complex | float:
+        """float: The complex phase of the PauliString. """
         return self._phase
+
+    @property
+    def coeff(self) -> complex | float:
+        """ coefficient of the PauliString """
+        return self._phase * self._modulus
+
+    @property
+    def modulus(self) -> float:
+        """ real norm of the PauliString """
+        return self._modulus
+    
+
 
     @property
     def qubit_count(self) -> int:
         """int: The number of qubits this Pauli string acts on."""
         return self._qubit_count
 
-    def to_observable(self, include_trivial: bool = False) -> TensorProduct:
+    def to_observable(self, include_trivial: bool = False) -> Sum | TensorProduct:
         if include_trivial:
             return TensorProduct([
                 (
@@ -92,6 +104,8 @@ class PauliString:
                 )
                 for qubit in range(self._qubit_count)
             ])
+        if abs(self._phase * self._coeff - 1) < _EPS:
+            return self.to_unsigned_observable(include_trivial=include_trivial)
         return self._phase * self._coeff * TensorProduct([
             _PAULI_OBSERVABLES[self._nontrivial[qubit]] for qubit in sorted(self._nontrivial)
         ])
@@ -231,9 +245,6 @@ class PauliString:
             self._qubit_count = out_pauli_string._qubit_count
             self._nontrivial = out_pauli_string._nontrivial
         return out_pauli_string
-
-    def __add__(self, other : PauliString) -> Sum:
-        pass
 
     def __mul__(self, other: PauliString) -> PauliString:
         """Right multiplication operator overload using `dot()`.
@@ -376,6 +387,13 @@ class PauliString:
             )
         return False
 
+    def is_same_string(self, other: PauliString) -> bool:
+        if isinstance(other, PauliString):
+            return (self._nontrivial == other._nontrivial
+                and self._qubit_count == other._qubit_count
+            )
+        return False
+
     def __getitem__(self, item: int):
         if item >= self._qubit_count:
             raise IndexError(item)
@@ -388,21 +406,6 @@ class PauliString:
         factors = [self._nontrivial.get(qubit, "I") for qubit in range(self._qubit_count)]
         c = self._coeff * self._phase
         return f"{''.join(factors)}: {c}"
-
-    @staticmethod
-    def _split(pauli_word: str) -> tuple[int, str]:
-        raise NotImplementedError
-        index = 0
-        phase = 1
-        if pauli_word[index] in {"+", "-"}:
-            phase *= int(f"{pauli_word[index]}1")
-            index += 1
-        unsigned = pauli_word[index:]
-        if not unsigned:
-            raise ValueError("Pauli string cannot be empty")
-        if set(unsigned) - _PAULI_INDICES.keys():
-            raise ValueError(f"{pauli_word} is not a valid Pauli string")
-        return phase, unsigned
 
     def _generate_eigenstate_circuit(self, signs: tuple[int, ...]) -> Circuit:
         circ = Circuit()
@@ -419,3 +422,27 @@ class PauliString:
             elif state == -2:
                 circ.h(qubit).si(qubit)
         return circ
+    
+    @staticmethod
+    def _split(pauli_word: str) -> tuple[complex, str]:
+        # Find first occurrence of Pauli letters
+        for i, char in enumerate(pauli_word):
+            if char in _PAULI_INDICES:
+                coeff_str = pauli_word[:i]
+                pauli_str = pauli_word[i:]
+                match coeff_str:
+                    case "" | "+":
+                        coeff = 1
+                    case "-":
+                        coeff = -1
+                    case _:
+                        coeff = complex(coeff_str)
+                break
+        else:
+            raise ValueError(f"{pauli_word} is not a valid Pauli string")
+        
+        if not pauli_str:
+            raise ValueError("Pauli string cannot be empty")
+        if set(pauli_str) - _PAULI_INDICES.keys():
+            raise ValueError(f"{pauli_word} is not a valid Pauli string")
+        return coeff, pauli_str
