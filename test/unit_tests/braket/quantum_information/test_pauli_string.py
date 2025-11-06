@@ -297,6 +297,39 @@ def test_to_observable(pauli_string, expected_observable):
 
 
 @pytest.mark.parametrize(
+    "coeff, pauli_string, expected_result",
+    [
+        (2, "XY", "2XY"),
+        (0.5, "Z", "0.5Z"),
+        (1j, "YX", "1jYX"),
+        (-1.5, "XZ", "-1.5XZ"),
+        (2+3j, "I", "(2+3j)I"),
+    ],
+)
+def test_coefficient_multiplication(coeff, pauli_string, expected_result):
+    ps = PauliString(pauli_string)
+    
+    # Test c * PauliString
+    result1 = coeff * ps
+    assert isinstance(result1, PauliString)
+    assert abs(result1.coeff - coeff) < 1e-10
+    
+    # Test PauliString * c
+    result2 = ps * coeff
+    assert isinstance(result2, PauliString)
+    assert abs(result2.coeff - coeff) < 1e-10
+    
+    # Test PauliString *= c
+    ps_copy = PauliString(pauli_string)
+    ps_copy *= coeff
+    assert isinstance(ps_copy, PauliString)
+    assert abs(ps_copy.coeff - coeff) < 1e-10
+    
+    # All should be equivalent
+    assert result1 == result2 == ps_copy
+
+
+@pytest.mark.parametrize(
     "observable, expected_pauli_string",
     [
         (X() @ Z(), "XZ"),

@@ -37,6 +37,7 @@ _PAULI_OBSERVABLES = {_PAULI_X: X(), _PAULI_Y: Y(), _PAULI_Z: Z()}
 _SIGN_MAP = {"+": 1, "-": -1}
 _EPS = 1e-10
 
+numeric_types = (int, np.signedinteger, float, complex, np.floating, np.complexfloating)
 
 class PauliString:  # noqa: PLR0904
     """A lightweight sparse representation of a Pauli string with its phase."""
@@ -63,7 +64,7 @@ class PauliString:  # noqa: PLR0904
         match coeff:
             case int() | np.signedinteger():
                 self._modulus, self._phase = coeff, 0
-            case float() | complex() | np.floating() | np.complexfloating:
+            case float() | complex() | np.floating() | np.complexfloating():
                 self._modulus, self._phase = polar(coeff)
             case tuple():
                 self._modulus, self._phase = coeff
@@ -165,7 +166,7 @@ class PauliString:  # noqa: PLR0904
             _PAULI_OBSERVABLES[self._nontrivial[qubit]] for qubit in sorted(self._nontrivial)
         ])
 
-    def dot(self, other: PauliString, inplace: bool = False) -> PauliString:
+    def dot(self, other: PauliString | float, inplace: bool = False) -> PauliString:  # noqa: C901
         """Right multiplies this Pauli string with the argument.
 
         Returns the result of multiplying the current circuit by the argument on its right. For
@@ -182,6 +183,17 @@ class PauliString:  # noqa: PLR0904
         Raises:
             ValueError: If the lengths of the Pauli strings being multiplied differ.
         """
+        if isinstance(other, numeric_types):
+            modulus, phase = polar(other)
+            if inplace:
+                self._phase += phase
+                self._modulus *= modulus
+                return self
+            return PauliString(
+                (self._qubit_count, self._nontrivial.copy()),
+                (modulus * self.modulus, phase + self.phase)
+                )
+
         if self._qubit_count != other._qubit_count:
             raise ValueError(
                 f"Input Pauli string must be of length ({self._qubit_count}), "
@@ -212,7 +224,7 @@ class PauliString:  # noqa: PLR0904
             return self
         return PauliString((self._qubit_count, nontrivial_result), (moduli, phase_result))
 
-    def __mul__(self, other: PauliString) -> PauliString:
+    def __mul__(self, other: PauliString | float) -> PauliString:
         """Right multiplication operator overload using `dot()`.
 
         Returns the result of multiplying the current circuit by the argument on its right.
@@ -231,7 +243,20 @@ class PauliString:  # noqa: PLR0904
         """
         return self.dot(other)
 
-    def __imul__(self, other: PauliString) -> PauliString:
+    def __rmul__(self, other: float) -> PauliString:
+        """Left multiplication operator overload for scalar multiplication.
+
+        Handles cases like `2 * pauli_string`.
+
+        Args:
+            other (float): The scalar coefficient.
+
+        Returns:
+            PauliString: The resultant PauliString with updated coefficient.
+        """
+        return self.dot(other)
+
+    def __imul__(self, other: PauliString | float) -> PauliString:
         """Operator overload for right-multiplication assignment (`*=`) using `dot()`.
 
         Right-multiplies `self` by `other`, and assigns the result to `self`.
