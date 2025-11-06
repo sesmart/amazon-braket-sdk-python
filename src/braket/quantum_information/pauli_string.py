@@ -49,8 +49,8 @@ class PauliString:  # noqa: PLR0904
 
         Args:
             pauli_string (str | PauliString | tuple[int, dict[int, str]]):
-                The representation of the pauli word, either a
-                string, another PauliString object, or a tuple of (qubit_count, nontrivial_dict).
+                The representation of the pauli word, either a string (of the form)
+                another PauliString object, or a tuple of (qubit_count, nontrivial_dict).
                 A valid string consists of an (optional) coefficient with an uppercase string in
                 {I, X, Y, Z}. Example valid strings are: XYZ, -YX, 0.5ZII, 0.3jIXY, 1e-3XX, etc.
             coeff (complex | tuple[float, float]): An optional coefficient that can be specified
@@ -117,7 +117,8 @@ class PauliString:  # noqa: PLR0904
 
         has_targets = len(observable.targets) > 0
         if nq is None:
-            nq = max(observable.targets) + 1 if has_targets else getattr(observable, "__len__", [0].__len__)()  # noqa: E501
+            nq = (max(observable.targets) + 1 if has_targets 
+                  else getattr(observable, "__len__", [0].__len__)())
         if nq == 1:
             return PauliString(observable.ascii_symbols[0])
         pstr = {}
@@ -186,21 +187,23 @@ class PauliString:  # noqa: PLR0904
                 f"Input Pauli string must be of length ({self._qubit_count}), "
                 f"not {other._qubit_count}"
             )
+
         nontrivial_result = {}
         phase_result = self._phase + other._phase
         moduli = self._modulus * other._modulus
 
-        for i in self._nontrivial.keys() | other._nontrivial.keys():
-            match (i in self._nontrivial, i in other._nontrivial):
-                case (False, True):
-                    nontrivial_result[i] = other._nontrivial[i]
-                case (True, False):
-                    nontrivial_result[i] = self._nontrivial[i]
-                case (True, True) if self._nontrivial[i] != other._nontrivial[i]:
-                    gate, phase = _PRODUCT_MAP[self._nontrivial[i]][other._nontrivial[i]]
-                    if gate != "I":
-                        nontrivial_result[i] = gate
-                    phase_result += phase * pi / 2
+        if not self.is_same_string(other):
+            for i in self._nontrivial.keys() | other._nontrivial.keys():
+                match (i in self._nontrivial, i in other._nontrivial):
+                    case (False, True):
+                        nontrivial_result[i] = other._nontrivial[i]
+                    case (True, False):
+                        nontrivial_result[i] = self._nontrivial[i]
+                    case (True, True) if self._nontrivial[i] != other._nontrivial[i]:
+                        gate, phase = _PRODUCT_MAP[self._nontrivial[i]][other._nontrivial[i]]
+                        if gate != "I":
+                            nontrivial_result[i] = gate
+                        phase_result += phase * pi / 2
 
         if inplace:
             self._phase = phase_result % (2 * pi)
