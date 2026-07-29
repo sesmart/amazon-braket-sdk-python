@@ -30,7 +30,8 @@ _PRODUCT_MAP = {
 }
 _ID_OBS = I()
 _PAULI_OBSERVABLES = {_PAULI_X: X(), _PAULI_Y: Y(), _PAULI_Z: Z()}
-_SIGN_MAP = {"+": 1, "-": -1}
+_SIGN_MAP = {"+": 1, "-": -1, "j": 1j, "J": -1j}
+_PHASE_MAP = {v: k for k, v in _SIGN_MAP.items()}
 
 
 class PauliString:
@@ -64,10 +65,10 @@ class PauliString:
             raise TypeError(f"Pauli word {pauli_string} must be of type {PauliString} or {str}")
 
     @property
-    def phase(self) -> int:
-        """int: The phase of the Pauli string.
+    def phase(self) -> complex:
+        """complex: The phase of the Pauli string.
 
-        Can be one of +/-1
+        Can be one of four roots of unity, +1, +1j, -1, and -1j.
         """
         return self._phase
 
@@ -199,15 +200,12 @@ class PauliString:
             if i not in self._nontrivial:
                 pauli_result[i] = other._nontrivial[i]
 
-        # ignore complex global phase
-        out_phase = -1 if (phase_result.real < 0 or phase_result.imag < 0) else 1
-
         # Bypass __init__ via __new__ to avoid serializing the computed dict
         # back into a string just to have __init__ parse it again. The fields
         # below fully define a valid PauliString, so direct assignment is both
         # faster and avoids an O(qubit_count) dense-string round trip.
         out_pauli_string = PauliString.__new__(PauliString)
-        out_pauli_string._phase = out_phase
+        out_pauli_string._phase = phase_result
         out_pauli_string._qubit_count = self._qubit_count
         out_pauli_string._nontrivial = pauli_result
 
@@ -334,11 +332,10 @@ class PauliString:
         # field assignment keeps the hot path allocation-light.
         pauli_other = PauliString.__new__(PauliString)
         pauli_other._qubit_count = self._qubit_count
+        pauli_other._phase = self._phase**n
         if n % 2 == 0:
-            pauli_other._phase = 1
             pauli_other._nontrivial = {}
         else:
-            pauli_other._phase = self._phase
             pauli_other._nontrivial = dict(self._nontrivial)
 
         if inplace:
@@ -428,14 +425,14 @@ class PauliString:
         factors = ["I"] * self._qubit_count
         for i, p in self._nontrivial.items():
             factors[i] = p
-        return f"{PauliString._phase_to_str(self._phase)}{''.join(factors)}"
+        return f"{_PHASE_MAP[self._phase]}{''.join(factors)}"
 
     @staticmethod
     def _split(pauli_word: str) -> tuple[int, str]:
         index = 0
         phase = 1
-        if pauli_word[index] in {"+", "-"}:
-            phase *= int(f"{pauli_word[index]}1")
+        if pauli_word[index] in _SIGN_MAP:
+            phase *= _SIGN_MAP[pauli_word[index]]
             index += 1
         unsigned = pauli_word[index:]
         if not unsigned:
@@ -443,10 +440,6 @@ class PauliString:
         if set(unsigned) - _PAULI_INDICES.keys():
             raise ValueError(f"{pauli_word} is not a valid Pauli string")
         return phase, unsigned
-
-    @staticmethod
-    def _phase_to_str(phase: int) -> str:
-        return "+" if phase > 0 else "-"
 
     def _generate_eigenstate_circuit(self, signs: tuple[int, ...]) -> Circuit:
         circ = Circuit()

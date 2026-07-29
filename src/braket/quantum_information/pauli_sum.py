@@ -208,8 +208,7 @@ class PauliSum:
         factors = ["I"] * qubit_count
         for qubit in range(pauli_string.qubit_count):
             factors[qubit] = "IXYZ"[pauli_string[qubit]]
-        sign = "-" if pauli_string.phase < 0 else "+"
-        return PauliString(f"{sign}{''.join(factors)}")
+        return PauliString("".join(factors))
 
     @staticmethod
     def _term_from_observable(observable: Observable) -> tuple[numbers.Number, str]:

@@ -149,8 +149,8 @@ def test_eigenstate_invalid_signs(sign):
         ("XYXZY", "+XYXZY", "IIIII"),
         ("XYZ", "ZYX", "YIY"),
         ("YZ", "ZX", "-XY"),
-        ("-Z", "Y", "X"),
-        ("Z", "Y", "-X"),
+        ("-Z", "Y", "jX"),
+        ("Z", "Y", "JX"),
     ],
 )
 def test_dot(circ_arg_1, circ_arg_2, circ_res):

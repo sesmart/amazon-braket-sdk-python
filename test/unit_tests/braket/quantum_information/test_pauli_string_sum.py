@@ -35,20 +35,20 @@ def test_addition_subtraction_and_scalar_multiplication():
 def test_multiplication_by_pauli_string():
     pauli_sum = PauliStringSum([(2.0, "XY"), (3.0, "ZZ")])
 
-    assert (pauli_sum * PauliString("YZ")).to_list() == [(-2.0, "ZX"), (-3.0, "XI")]
+    assert (pauli_sum * PauliString("YZ")).to_list() == [(-2.0 + 0j, "ZX"), (-3j, "XI")]
 
 
 def test_multiplication_by_pauli_string_pads_mixed_width_terms():
     pauli_sum = PauliStringSum([(1.0, "X"), (2.0, "IZ")])
 
-    assert (pauli_sum * PauliString("ZZ")).to_list() == [(-1.0, "YZ"), (2.0, "ZI")]
+    assert (pauli_sum * PauliString("ZZ")).to_list() == [(-1j, "YZ"), (2.0, "ZI")]
 
 
 def test_left_multiplication_by_pauli_string_preserves_order():
     pauli_sum = PauliStringSum([(2.0, "X")])
 
-    assert (pauli_sum * PauliString("Z")).to_list() == [(-2.0, "Y")]
-    assert (PauliString("Z") * pauli_sum).to_list() == [(2.0, "Y")]
+    assert (pauli_sum * PauliString("Z")).to_list() == [(-2j, "Y")]
+    assert (PauliString("Z") * pauli_sum).to_list() == [(2j, "Y")]
 
 
 def test_indexing_and_membership():
